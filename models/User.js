@@ -1,4 +1,7 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
+const jwt = require('jsonwebtoken');
 
 const userSchema = mongoose.Schema({
     name: {
@@ -30,6 +33,57 @@ const userSchema = mongoose.Schema({
         type: Number
     }
 })
+
+userSchema.pre('save', function(next) {
+    var user = this;
+    if (user.isModified('password')) {
+
+        bcrypt.genSalt(saltRounds, function(err, salt){
+            if (err) return next(err);
+
+            bcrypt.hash(user.password, salt, function(err, hash) {
+                if (err) return next(err);
+                user.password = hash;
+                next();
+            });
+        });
+    } else {
+        next();
+    }
+});
+
+userSchema.methods.comparePassword = function(plainPassword, cb) {
+    bcrypt.compare(plainPassword, this.password, function(err, isMatch) {
+        if (err) return cb(err);
+        cb(null, isMatch);
+    });
+}
+
+userSchema.methods.generateToken = function(cb) {
+
+    var user = this;
+
+    // create token using jsonwebtoken
+    var token = jwt.sign(user._id.toHexString(), 'secretToken')
+
+    user.token = token;
+    user.save()
+        .then(function(user) {
+            cb(null, user);
+        })
+        .catch(function(err) {
+            cb(err);
+        });
+}
+
+userSchema.statics.findByToken = function(token) {
+    try {
+        const decoded = jwt.verify(token, 'secretToken');
+        return this.findOne({ _id: decoded, token: token });
+    } catch (err) {
+        return Promise.reject(err);
+    }
+};
 
 const User = mongoose.model('User', userSchema)
 
